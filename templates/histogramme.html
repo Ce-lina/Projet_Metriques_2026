@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Histogramme Températures Paris</title>
+  <script src="https://www.gstatic.com/charts/loader.js"></script>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 24px; background: #f4f6f9; }
+    h1 { color: #2c3e50; }
+    #chart { width: 100%; height: 520px; background: white; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+    #status { margin-top: 12px; color: #7f8c8d; }
+  </style>
+</head>
+<body>
+  <h1>📊 Prévisions météo Paris — Histogramme</h1>
+  <div id="chart"></div>
+  <div id="status">Chargement...</div>
+
+  <script>
+    google.charts.load('current', { packages: ['corechart'] });
+    google.charts.setOnLoadCallback(init);
+
+    async function init() {
+      try {
+        const res = await fetch('/paris', { headers: { 'Accept': 'application/json' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const json = await res.json();
+
+        // On garde 1 point toutes les 24h (midi) pour avoir 7 jours lisibles
+        const daily = json.filter(p => p.datetime.includes('T12:00'));
+
+        const data = new google.visualization.DataTable();
+        data.addColumn('string', 'Date');
+        data.addColumn('number', 'Température (°C)');
+
+        daily.forEach(p => {
+          const label = p.datetime.split('T')[0]; // ex: "2026-05-18"
+          data.addRow([label, p.temperature_c]);
+        });
+
+        const options = {
+          title: 'Température à Paris — 7 prochains jours (à midi)',
+          legend: { position: 'none' },
+          hAxis: { title: 'Date' },
+          vAxis: { title: '°C', minValue: 0 },
+          colors: ['#3498db'],
+          bar: { groupWidth: '60%' },
+          animation: { startup: true, duration: 800, easing: 'out' }
+        };
+
+        const chart = new google.visualization.ColumnChart(document.getElementById('chart'));
+        chart.draw(data, options);
+        document.getElementById('status').textContent = `✅ ${daily.length} jours affichés`;
+      } catch (err) {
+        document.getElementById('status').textContent = 'Erreur : ' + err.message;
+      }
+    }
+  </script>
+</body>
+</html>
