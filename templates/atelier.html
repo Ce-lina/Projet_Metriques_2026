@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vitesse du vent — Marseille</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+      background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+      min-height: 100vh; color: white; padding: 32px;
+    }
+    header { text-align: center; margin-bottom: 32px; }
+    header h1 { font-size: 32px; font-weight: 700; }
+    header p { color: #90cdf4; margin-top: 8px; font-size: 15px; }
+    .badge {
+      display: inline-block;
+      background: rgba(144,205,244,0.15);
+      border: 1px solid #90cdf4;
+      border-radius: 20px; padding: 4px 14px;
+      font-size: 12px; color: #90cdf4; margin-top: 6px;
+    }
+    .card {
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px; padding: 28px;
+    }
+    canvas { display: block; width: 100%; }
+    #status { text-align: center; margin-top: 14px; color: #90cdf4; font-size: 13px; }
+
+    /* Tooltip */
+    #tooltip {
+      position: fixed; pointer-events: none;
+      background: rgba(15,32,39,0.95);
+      border: 1px solid #4fc3f7; border-radius: 8px;
+      padding: 8px 14px; font-size: 13px; color: #fff;
+      display: none; z-index: 99;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>💨 Vitesse du Vent — Marseille</h1>
+    <p>Prévisions horaires sur 7 jours · open-meteo.com</p>
+    <span class="badge">Area Chart — Canvas pur (sans dépendance)</span>
+  </header>
+
+  <div class="card">
+    <canvas id="chart" height="420"></canvas>
+    <div id="status">Chargement des données...</div>
+  </div>
+  <div id="tooltip"></div>
+
+  <script>
+    var allData = [];
+
+    // ── Fetch données ──────────────────────────────────────────
+    fetch('/vent', { headers: { 'Accept': 'application/json' } })
+      .then(function(r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function(json) {
+        // Garder 1 point toutes les 3h pour alléger
+        allData = json
+          .filter(function(_, i) { return i % 3 === 0; })
+          .map(function(p) {
+            var dp = p.datetime.split('T');
+            return { label: dp[0].slice(5) + ' ' + dp[1], value: p.windspeed_kmh };
+          });
+        drawChart(allData);
+        document.getElementById('status').textContent =
+          '✅ ' + allData.length + ' points · Survolez pour les détails';
+        window.addEventListener('resize', function() { drawChart(allData); });
+      })
+      .catch(function(e) {
+        document.getElementById('status').textContent = '❌ Erreur : ' + e.message;
+      });
+
+    // ── Dessin Canvas ──────────────────────────────────────────
+    function drawChart(data) {
+      var canvas = document.getElementById('chart');
+      var dpr = window.devicePixelRatio || 1;
+      var W = canvas.parentElement.clientWidth - 56;
+      var H = 420;
+      canvas.width  = W * dpr;
+      canvas.height = H * dpr;
+      canvas.style.width  = W + 'px';
+      canvas.style.height = H + 'px';
+
+      var ctx = canvas.getContext('2d');
+      ctx.scale(dpr, dpr);
+
+      var pad = { top: 30, right: 24, bottom: 56, left: 58 };
+      var cW = W - pad.left - pad.right;
+      var cH = H - pad.top  - pad.bottom;
+
+      var vals  = data.map(function(d) { return d.value; });
+      var maxV  = Math.ceil(Math.max.apply(null, vals) / 5) * 5 + 5;
+      var minV  = 0;
+      var range = maxV - minV;
+
+      function xPos(i)  { return pad.left + (i / (data.length - 1)) * cW; }
+      function yPos(v)  { return pad.top  + cH - ((v - minV) / range) * cH; }
+
+      // Fond
+      ctx.clearRect(0, 0, W, H);
+
+      // Grille horizontale
+      ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+      ctx.lineWidth   = 1;
+      var steps = 5;
+      for (var s = 0; s <= steps; s++) {
+        var v = minV + (range / steps) * s;
+        var y = yPos(v);
+        ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + cW, y); ctx.stroke();
+        ctx.fillStyle = '#90cdf4'; ctx.font = '11px Segoe UI';
+        ctx.textAlign = 'right';
+        ctx.fillText(Math.round(v) + ' km/h', pad.left - 8, y + 4);
+      }
+
+      // Axe X — labels (1 sur N)
+      var step = Math.ceil(data.length / 10);
+      ctx.fillStyle = '#90cdf4'; ctx.font = '11px Segoe UI'; ctx.textAlign = 'center';
+      for (var i = 0; i < data.length; i += step) {
+        ctx.fillText(data[i].label, xPos(i), H - pad.bottom + 18);
+      }
+
+      // Dégradé Area
+      var grad = ctx.createLinearGradient(0, pad.top, 0, pad.top + cH);
+      grad.addColorStop(0,   'rgba(79,195,247,0.45)');
+      grad.addColorStop(1,   'rgba(79,195,247,0.02)');
+
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yPos(data[0].value));
+      for (var j = 1; j < data.length; j++) {
+        var xc = (xPos(j-1) + xPos(j)) / 2;
+        var yc = (yPos(data[j-1].value) + yPos(data[j].value)) / 2;
+        ctx.quadraticCurveTo(xPos(j-1), yPos(data[j-1].value), xc, yc);
+      }
+      ctx.lineTo(xPos(data.length-1), yPos(data[data.length-1].value));
+      ctx.lineTo(xPos(data.length-1), pad.top + cH);
+      ctx.lineTo(xPos(0), pad.top + cH);
+      ctx.closePath();
+      ctx.fillStyle = grad; ctx.fill();
+
+      // Ligne
+      ctx.beginPath();
+      ctx.moveTo(xPos(0), yPos(data[0].value));
+      for (var k = 1; k < data.length; k++) {
+        var xck = (xPos(k-1) + xPos(k)) / 2;
+        var yck = (yPos(data[k-1].value) + yPos(data[k].value)) / 2;
+        ctx.quadraticCurveTo(xPos(k-1), yPos(data[k-1].value), xck, yck);
+      }
+      ctx.lineTo(xPos(data.length-1), yPos(data[data.length-1].value));
+      ctx.strokeStyle = '#4fc3f7'; ctx.lineWidth = 2.5; ctx.stroke();
+
+      // Titre
+      ctx.fillStyle = 'white'; ctx.font = 'bold 14px Segoe UI'; ctx.textAlign = 'center';
+      ctx.fillText('Vent (km/h) — Marseille, 7 jours', W / 2, 18);
+
+      // Tooltip au survol
+      canvas.onmousemove = function(e) {
+        var rect = canvas.getBoundingClientRect();
+        var mx = e.clientX - rect.left;
+        var idx = Math.round(((mx - pad.left) / cW) * (data.length - 1));
+        if (idx < 0 || idx >= data.length) { document.getElementById('tooltip').style.display = 'none'; return; }
+        var tip = document.getElementById('tooltip');
+        tip.style.display = 'block';
+        tip.style.left = (e.clientX + 14) + 'px';
+        tip.style.top  = (e.clientY - 28) + 'px';
+        tip.innerHTML  = '<b>' + data[idx].label + '</b><br>💨 ' + data[idx].value + ' km/h';
+
+        // Point de surbrillance
+        drawChart(data);
+        ctx.beginPath();
+        ctx.arc(xPos(idx), yPos(data[idx].value), 5, 0, Math.PI * 2);
+        ctx.fillStyle = '#4fc3f7'; ctx.fill();
+        ctx.strokeStyle = 'white'; ctx.lineWidth = 2; ctx.stroke();
+      };
+      canvas.onmouseleave = function() {
+        document.getElementById('tooltip').style.display = 'none';
+      };
+    }
+  </script>
+</body>
+</html>
